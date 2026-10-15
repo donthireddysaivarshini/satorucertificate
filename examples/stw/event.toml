@@ -1,0 +1,71 @@
+# STW workshop, 8 September 2026 — same layout as the original generator.
+title = "STW Workshop · 8 Sep 2026"
+template = "template.png"            # put your template image in this folder
+
+[data]
+sheet = "participants.xlsx"          # .xlsx or .csv, in this folder
+required = ["name", "email", "college", "cert_no"]
+
+[data.columns]                       # extra sheet headers to recognise
+college = ["college name", "college"]
+
+[cert_no]
+format = "SF/STW/{n:03d}/2026"       # a sheet value of 7 becomes SF/STW/007/2026
+
+[values]                             # fixed text, used below as {workshop_date} etc.
+workshop_date = "8 September 2026"
+hours = "8 hours"
+issued = "10 September 2026"
+
+[style]                              # defaults for every field
+font = "fonts/DMSans.ttf"
+weight = "Regular"
+size = 28
+color = [61, 59, 58]
+
+[[fields]]                           # participant name, centred on the line
+text = "{name}"
+x = 1315
+y = 598
+anchor = "ms"
+size = 64
+weight = "SemiBold"
+max_width = 1000
+
+[[fields]]
+text = "{workshop_date}"
+x = 396
+y = 996
+
+[[fields]]
+text = "{college}"
+x = 382
+y = 1057
+max_width = 698                      # shrinks long college names to fit
+
+[[fields]]
+text = "{hours}"
+x = 434
+y = 1117
+
+[[fields]]
+text = "{issued}"
+x = 326
+y = 1177
+
+[[fields]]
+text = "Certificate No : {cert_no}"
+x = 175
+y = 1237
+cover = [173, 1209, 700, 1247]       # white box painted first, hiding the template's label
+
+[output]
+filename = "{serial}_{name}"         # 001_Asha_Rao.pdf
+resolution = 150                     # 2000x1414 px template -> A4 landscape
+
+[email]
+from_name = ""                       # e.g. "SF Workshops Team"
+subject = "Your Certificate of Participation – Workshop on {workshop_date}"
+body_file = "email.txt"
+reply_to = ""
+delay = 2

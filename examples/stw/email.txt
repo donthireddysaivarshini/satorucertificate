@@ -1,0 +1,12 @@
+Dear {name},
+
+Thank you for participating in the workshop held on {workshop_date}.
+
+Please find your Certificate of Participation attached to this email.
+Certificate No: {cert_no}
+
+If you notice any error in your name or details, just reply to this email
+and we'll send a corrected copy.
+
+Warm regards,
+{from_name}

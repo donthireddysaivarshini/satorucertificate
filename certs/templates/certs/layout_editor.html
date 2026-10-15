@@ -1,0 +1,948 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Certificate Layout Editor</title>
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+<link rel="stylesheet" href="https://fonts.googleapis.com/css2?family=DM+Sans:wght@400;500;600;700&display=swap">
+{% load static %}<script src="{% static 'certs/fabric-5.3.0.min.js' %}"></script>
+<script>window.fabric || document.write('<script src="https://cdnjs.cloudflare.com/ajax/libs/fabric.js/5.3.0/fabric.min.js"><\/script>');</script>
+
+<!--
+  Config from Django (certs.admin.TemplateAdmin.editor_view); opened on its own the page works standalone.
+    templateUrl   URL of the template image
+    templateName  file name stored in layout.json
+    layoutUrl     GET  -> existing layout.json (404 = no layout yet)
+    saveUrl       POST <- layout.json body (application/json)
+    previewUrl    POST <- {"layout": ..., "values": {key: text}} -> image
+    backUrl       link back to the template's admin page
+    fontUrl       the template's font, so text is measured exactly as it will print
+    canEdit       false = view only
+    sample        example values for patterns such as {workshop_date}
+  Without saveUrl, "Save" downloads layout.json instead.
+-->
+<script id="editor-config" type="application/json">{{ editor_config_json }}</script>
+
+<style>
+  :root {
+    --olive: #5B6B47;
+    --olive-dark: #45523A;
+    --olive-tint: #EEF1E8;
+    --gold: #D9B44A;
+    --paper: #F7F6F2;
+    --panel: #FFFFFF;
+    --ink: #2E2D2B;
+    --muted: #6E6B66;
+    --line: #E2DFD8;
+    --warn-bg: #FFF4D6;
+    --warn-ink: #7A5A00;
+    --danger: #B3402E;
+    --font: "DM Sans", system-ui, -apple-system, "Segoe UI", sans-serif;
+    color-scheme: light;
+  }
+  * { box-sizing: border-box; }
+  [hidden] { display: none !important; }   /* class display rules must not un-hide elements */
+  html, body { height: 100%; margin: 0; }
+  body {
+    font-family: var(--font); font-size: 14px; color: var(--ink);
+    background: var(--paper); display: grid; grid-template-rows: auto 1fr;
+  }
+  button, input, select { font: inherit; color: inherit; }
+  button { cursor: pointer; }
+  :focus-visible { outline: 2px solid var(--olive); outline-offset: 2px; }
+
+  /* Top bar */
+  .bar {
+    display: flex; align-items: center; gap: 12px; flex-wrap: wrap;
+    padding: 10px 16px; background: var(--panel); border-bottom: 1px solid var(--line);
+  }
+  .bar h1 { font-size: 16px; font-weight: 600; margin: 0; }
+  .bar .tpl { color: var(--muted); max-width: 30ch; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+  .bar .spacer { flex: 1; }
+  .status { font-size: 12px; padding: 3px 10px; border-radius: 999px; background: var(--olive-tint); color: var(--olive-dark); }
+  .status.dirty { background: var(--warn-bg); color: var(--warn-ink); }
+  .btn {
+    border: 1px solid var(--line); background: var(--panel); border-radius: 8px;
+    padding: 7px 14px; font-weight: 500;
+  }
+  .btn:hover { border-color: var(--olive); }
+  a.btn { text-decoration: none; color: var(--ink); display: inline-block; }
+  .btn.primary { background: var(--olive); border-color: var(--olive); color: #fff; }
+  .btn.primary:hover { background: var(--olive-dark); }
+  .btn.danger { color: var(--danger); }
+  .btn.danger:hover { border-color: var(--danger); }
+  .btn[disabled] { opacity: .5; cursor: default; }
+
+  /* Main three-column layout */
+  .main { display: grid; grid-template-columns: 230px minmax(0, 1fr) 290px; min-height: 0; }
+  .side { background: var(--panel); overflow-y: auto; padding: 16px; display: flex; flex-direction: column; gap: 18px; }
+  .side.left { border-right: 1px solid var(--line); }
+  .side.right { border-left: 1px solid var(--line); }
+  .side h2 {
+    font-size: 11px; font-weight: 600; letter-spacing: .08em; text-transform: uppercase;
+    color: var(--muted); margin: 0 0 8px;
+  }
+  .add-list { display: grid; gap: 6px; }
+  .add-list button {
+    text-align: left; border: 1px dashed var(--line); background: var(--paper);
+    border-radius: 8px; padding: 8px 10px;
+  }
+  .add-list button:hover { border-color: var(--olive); border-style: solid; }
+  .add-list button::before { content: "+ "; color: var(--olive); font-weight: 700; }
+
+  .placed { list-style: none; margin: 0; padding: 0; display: grid; gap: 4px; }
+  .placed button {
+    width: 100%; text-align: left; border: 1px solid transparent; background: none;
+    border-radius: 8px; padding: 7px 10px; display: flex; justify-content: space-between; gap: 8px;
+  }
+  .placed button:hover { background: var(--paper); }
+  .placed button.active { background: var(--olive-tint); border-color: var(--olive); }
+  .placed .flag { color: var(--warn-ink); font-size: 12px; }
+  .empty-note { color: var(--muted); font-size: 13px; line-height: 1.45; margin: 0; }
+
+  /* Stage */
+  .stage { position: relative; overflow: auto; display: grid; place-items: center; padding: 24px; min-height: 0; }
+  .canvas-wrap { box-shadow: 0 2px 14px rgba(0,0,0,.12); background: #fff; line-height: 0; }
+  .zoom {
+    position: absolute; right: 16px; bottom: 16px; display: flex; align-items: center; gap: 4px;
+    background: var(--panel); border: 1px solid var(--line); border-radius: 8px; padding: 4px;
+  }
+  .zoom button { border: 0; background: none; width: 30px; height: 28px; border-radius: 6px; font-size: 16px; }
+  .zoom button:hover { background: var(--paper); }
+  .zoom span { min-width: 48px; text-align: center; font-size: 12px; color: var(--muted); font-variant-numeric: tabular-nums; }
+  .zoom .fit { width: auto; padding: 0 8px; font-size: 12px; }
+
+  .drop {
+    border: 2px dashed var(--line); border-radius: 14px; padding: 48px 32px; text-align: center;
+    max-width: 440px; background: var(--panel); display: grid; gap: 12px; justify-items: center;
+  }
+  .drop.over { border-color: var(--olive); background: var(--olive-tint); }
+  .drop p { margin: 0; color: var(--muted); line-height: 1.5; }
+  .drop strong { font-size: 16px; }
+
+  .banner {
+    position: absolute; top: 12px; left: 50%; transform: translateX(-50%); max-width: 90%;
+    background: var(--warn-bg); color: var(--warn-ink); border-radius: 8px; padding: 8px 14px; font-size: 13px;
+    box-shadow: 0 2px 8px rgba(0,0,0,.08); z-index: 5;
+  }
+
+  /* Properties panel */
+  .props { display: grid; gap: 14px; }
+  .row { display: grid; gap: 5px; }
+  .row label, .row .lbl { font-size: 12px; font-weight: 500; color: var(--muted); }
+  .row input[type=text], .row input[type=number], .row select {
+    width: 100%; border: 1px solid var(--line); border-radius: 7px; padding: 7px 9px; background: var(--panel);
+  }
+  .row input:focus, .row select:focus { border-color: var(--olive); outline: none; }
+  .hint { font-size: 12px; color: var(--muted); line-height: 1.4; margin: 0; }
+  .grid2 { display: grid; grid-template-columns: 1fr 1fr; gap: 10px; }
+  .grid4 { display: grid; grid-template-columns: repeat(4, 1fr); gap: 6px; }
+  .grid4 input { padding: 6px 6px !important; font-variant-numeric: tabular-nums; }
+  .seg { display: flex; border: 1px solid var(--line); border-radius: 7px; overflow: hidden; }
+  .seg button { flex: 1; border: 0; background: var(--panel); padding: 7px 0; font-size: 13px; }
+  .seg button + button { border-left: 1px solid var(--line); }
+  .seg button.on { background: var(--olive); color: #fff; }
+  .color-row { display: flex; gap: 8px; align-items: center; }
+  .color-row input[type=color] { width: 40px; height: 34px; border: 1px solid var(--line); border-radius: 7px; padding: 2px; background: var(--panel); }
+  .shrunk { font-size: 12px; background: var(--warn-bg); color: var(--warn-ink); border-radius: 7px; padding: 6px 9px; }
+  .keys { font-size: 12px; color: var(--muted); line-height: 1.6; margin: 0; }
+  kbd { font-family: inherit; font-size: 11px; border: 1px solid var(--line); border-bottom-width: 2px; border-radius: 4px; padding: 0 4px; background: var(--paper); }
+
+  /* Preview overlay */
+  .overlay { position: fixed; inset: 0; background: rgba(30,30,28,.6); display: grid; place-items: center; padding: 24px; z-index: 20; }
+  .overlay .box { background: var(--panel); border-radius: 12px; padding: 16px; max-width: min(1100px, 100%); max-height: 100%; overflow: auto; display: grid; gap: 12px; }
+  .overlay .box header { display: flex; justify-content: space-between; align-items: center; gap: 12px; }
+  .overlay img { max-width: 100%; height: auto; border: 1px solid var(--line); }
+
+  @media (max-width: 1000px) {
+    body { grid-template-rows: auto auto; height: auto; }
+    .main { grid-template-columns: 1fr; }
+    .side.left, .side.right { border: 0; border-bottom: 1px solid var(--line); }
+    .stage { min-height: 60vh; }
+  }
+</style>
+</head>
+<body>
+
+<header class="bar">
+  <h1>Certificate Layout</h1>
+  <span class="tpl" id="tplName">No template open</span>
+  <span class="status" id="status" hidden>Saved</span>
+  <span class="spacer"></span>
+  <a class="btn" id="backBtn" hidden>← Back to template</a>
+  <button class="btn" id="openTplBtn" type="button">Open template</button>
+  <button class="btn" id="openLayoutBtn" type="button">Open layout</button>
+  <button class="btn" id="previewBtn" type="button" hidden>Preview certificate</button>
+  <button class="btn primary" id="saveBtn" type="button" disabled>Save layout</button>
+  <input type="file" id="tplFile" accept="image/png,image/jpeg" hidden>
+  <input type="file" id="layoutFile" accept="application/json,.json" hidden>
+</header>
+
+<div class="main">
+  <!-- Left: add fields + list of placed fields -->
+  <aside class="side left">
+    <section id="addSection">
+      <h2>Add a field</h2>
+      <div class="add-list" id="addList"></div>
+    </section>
+    <section>
+      <h2>On this certificate</h2>
+      <ul class="placed" id="placedList"></ul>
+      <p class="empty-note" id="placedEmpty">Nothing placed yet. Add a field, then drag it to where the text should go.</p>
+    </section>
+  </aside>
+
+  <!-- Centre: the template -->
+  <main class="stage" id="stage">
+    <div class="banner" id="banner" hidden></div>
+    <div class="drop" id="drop">
+      <strong>Open a certificate template</strong>
+      <p>Drop the PNG here, or choose it from your computer. The certificate is shown at its real size, so the boxes you place land exactly there on every certificate.</p>
+      <button class="btn primary" id="dropBtn" type="button">Choose template image</button>
+    </div>
+    <div class="canvas-wrap" id="canvasWrap" hidden><canvas id="editor"></canvas></div>
+    <div class="zoom" id="zoomBar" hidden>
+      <button type="button" id="zoomOut" aria-label="Zoom out">−</button>
+      <span id="zoomLabel">100%</span>
+      <button type="button" id="zoomIn" aria-label="Zoom in">+</button>
+      <button type="button" class="fit" id="zoomFit">Fit</button>
+    </div>
+  </main>
+
+  <!-- Right: properties of the selected field -->
+  <aside class="side right">
+    <section id="noSel">
+      <h2>Field settings</h2>
+      <p class="empty-note">Click a box on the certificate to change what it says and how it looks.</p>
+    </section>
+
+    <section id="sel" hidden>
+      <h2>Field settings</h2>
+      <div class="props">
+        <div class="row">
+          <label for="pLabel">Field name</label>
+          <input type="text" id="pLabel">
+        </div>
+
+        <div class="row" id="rowSource">
+          <label for="pSource">Where the text comes from</label>
+          <select id="pSource">
+            <option value="column">A column in the spreadsheet</option>
+            <option value="fixed">Same text on every certificate</option>
+            <option value="pattern">A pattern using columns</option>
+          </select>
+        </div>
+
+        <div class="row" id="rowColumn">
+          <label for="pColumn">Column heading in the spreadsheet</label>
+          <input type="text" id="pColumn" placeholder="e.g. Name">
+          <p class="hint">Type it exactly as it appears in the first row of the sheet.</p>
+        </div>
+
+        <div class="row" id="rowText">
+          <label for="pText">Text</label>
+          <input type="text" id="pText">
+        </div>
+
+        <div class="row" id="rowPattern">
+          <label for="pPattern">Pattern</label>
+          <input type="text" id="pPattern" placeholder="SF/STW/{Certificate No}/2026">
+          <p class="hint">Put a column heading or a batch value in curly brackets, e.g. <code>{College Name}</code> or <code>{workshop_date}</code>. <code>{cert_no}</code> is the certificate number.</p>
+        </div>
+
+        <div class="row" id="rowSample">
+          <label for="pSample">Example text shown here</label>
+          <input type="text" id="pSample">
+          <p class="hint">Only for checking the fit. Try the longest value in your sheet.</p>
+        </div>
+
+        <div class="row" id="rowQr" hidden>
+          <p class="hint">Links to this certificate's public verification page. It is drawn as a square in the middle of the box.</p>
+        </div>
+
+        <div class="row" id="rowAlign">
+          <span class="lbl">Alignment inside the box</span>
+          <div class="seg" id="pAlign">
+            <button type="button" data-v="left">Left</button>
+            <button type="button" data-v="center">Centre</button>
+            <button type="button" data-v="right">Right</button>
+          </div>
+        </div>
+
+        <div class="grid2" id="rowFont">
+          <div class="row">
+            <label for="pSize">Text size</label>
+            <input type="number" id="pSize" min="8" max="300" step="1">
+          </div>
+          <div class="row">
+            <label for="pWeight">Weight</label>
+            <select id="pWeight">
+              <option>Regular</option>
+              <option>Medium</option>
+              <option>SemiBold</option>
+              <option>Bold</option>
+            </select>
+          </div>
+        </div>
+
+        <div class="row">
+          <label for="pColor">Colour</label>
+          <div class="color-row">
+            <input type="color" id="pColor">
+            <input type="text" id="pColorHex" maxlength="7" aria-label="Colour code">
+          </div>
+        </div>
+
+        <div class="row">
+          <span class="lbl">Box position and size (template pixels)</span>
+          <div class="grid4">
+            <input type="number" id="pX" aria-label="Left" title="Left">
+            <input type="number" id="pY" aria-label="Top" title="Top">
+            <input type="number" id="pW" aria-label="Width" title="Width" min="10">
+            <input type="number" id="pH" aria-label="Height" title="Height" min="10">
+          </div>
+          <p class="hint">Left · Top · Width · Height</p>
+        </div>
+
+        <div class="row">
+          <label class="lbl" style="display:flex;gap:6px;align-items:center"><input type="checkbox" id="pFillOn"> Fill the box with a colour first</label>
+          <div class="color-row"><input type="color" id="pFill" value="#ffffff" aria-label="Box fill colour">
+            <p class="hint" style="margin:0">Hides anything printed on the template under the box.</p></div>
+        </div>
+
+        <div class="shrunk" id="shrunk" hidden>This text is too long for the box, so it will be printed smaller. Widen the box if that's not what you want.</div>
+
+        <button class="btn danger" type="button" id="deleteBtn">Remove this field</button>
+      </div>
+    </section>
+
+    <section>
+      <h2>Shortcuts</h2>
+      <p class="keys">
+        <kbd>←</kbd> <kbd>→</kbd> <kbd>↑</kbd> <kbd>↓</kbd> nudge 1 px, with <kbd>Shift</kbd> 10 px<br>
+        <kbd>Delete</kbd> remove field<br>
+        <kbd>Ctrl</kbd> + <kbd>S</kbd> save
+      </p>
+    </section>
+  </aside>
+</div>
+
+<div class="overlay" id="previewOverlay" hidden>
+  <div class="box">
+    <header>
+      <strong>Preview, exactly as it will print</strong>
+      <button class="btn" type="button" id="previewClose">Close</button>
+    </header>
+    <img id="previewImg" alt="Rendered certificate preview">
+  </div>
+</div>
+
+<script>
+(function () {
+  "use strict";
+
+  // ---------- Config ----------
+  const $ = (s) => document.querySelector(s);
+  const CONFIG = {};
+  try {
+    const raw = JSON.parse($("#editor-config").textContent);
+    for (const k in raw) {
+      const v = raw[k];
+      if (typeof v === "string") CONFIG[k] = v.indexOf("{" + "{") === -1 ? v : "";   // unrendered Django tag -> empty
+      else CONFIG[k] = v;
+    }
+  } catch (e) { /* standalone */ }
+  const DJANGO = !!CONFIG.saveUrl;
+  const CAN_EDIT = CONFIG.canEdit !== false;
+  const SAMPLE = CONFIG.sample || {};
+  const FONT = CONFIG.fontUrl ? "CertFont" : "DM Sans";   // what the certificate is printed in
+
+  // ---------- Constants ----------
+  const INK = "#3D3B3A";
+  const MIN_SIZE = 14;                       // never shrink text below this
+  const WEIGHTS = { Regular: 400, Medium: 500, SemiBold: 600, Bold: 700 };
+  const BOX_FILL = "rgba(91,107,71,0.12)";
+  const BOX_FILL_SEL = "rgba(217,180,74,0.22)";
+  const PRESETS = [
+    { label: "Name", source: "column", column: "Name", sample: "Jyothi Chouhan", align: "center", size: 64, weight: "SemiBold", w: 860 },
+    { label: "College", source: "column", column: "College", sample: "NIMS Hospital, Punjagutta", align: "left", size: 28, weight: "Regular", w: 700 },
+    { label: "Workshop Date", source: "pattern", pattern: "{workshop_date}", align: "left", size: 28, weight: "Regular", w: 520 },
+    { label: "Total Hours", source: "pattern", pattern: "{hours}", align: "left", size: 28, weight: "Regular", w: 520 },
+    { label: "Issued On", source: "pattern", pattern: "{issued}", align: "left", size: 28, weight: "Regular", w: 520 },
+    { label: "Certificate No", source: "pattern", pattern: "{cert_no}", align: "left", size: 28, weight: "Regular", w: 520 },
+    { label: "QR code", source: "qr", align: "center", size: 28, weight: "Regular", w: 200, h: 200, color: "#000000" },
+    { label: "Custom text", source: "fixed", text: "Your text here", align: "left", size: 28, weight: "Regular", w: 520 }
+  ];
+
+  // ---------- State ----------
+  let canvas = null;
+  let bgW = 0, bgH = 0;
+  let templateName = CONFIG.templateName || "template.png";
+  let fitScale = 1, zoom = 1;
+  let fields = [];
+  let selected = null;
+  let dirty = false;
+  let guide = null;
+
+  // ---------- Helpers ----------
+  const round = (n) => Math.round(n);
+  const slug = (s) => String(s || "field").toLowerCase().replace(/[^a-z0-9]+/g, "_").replace(/^_|_$/g, "") || "field";
+  function uniqueKey(base, except) {
+    let k = base, i = 2;
+    while (fields.some((f) => f !== except && f.key === k)) k = base + "_" + i++;
+    return k;
+  }
+  function getCookie(name) {
+    const m = document.cookie.match(new RegExp("(?:^|; )" + name + "=([^;]*)"));
+    return m ? decodeURIComponent(m[1]) : "";
+  }
+  function setStatus(text, isDirty) {
+    const s = $("#status");
+    s.hidden = false; s.textContent = text; s.classList.toggle("dirty", !!isDirty);
+  }
+  function markDirty() { dirty = true; setStatus("Unsaved changes", true); }
+  function showBanner(msg) { const b = $("#banner"); b.textContent = msg; b.hidden = !msg; }
+  // Fill {placeholders} from the sample values, so dates etc. look real while placing them.
+  function fillSample(text) {
+    return String(text || "").replace(/\{([^{}]+)\}/g, (m, k) => {
+      const v = SAMPLE[slug(k)];
+      return v ? String(v) : m;
+    });
+  }
+  function displayText(f) {
+    if (f.source === "qr") return "QR code";
+    if (f.source === "fixed") return fillSample(f.text);
+    if (f.sample) return f.sample;
+    if (f.source === "column") return SAMPLE[slug(f.column)] || f.column || "";
+    return fillSample(f.pattern);
+  }
+  function rectFill(f, isSel) {
+    if (f.fill) return f.fill;
+    return isSel ? BOX_FILL_SEL : BOX_FILL;
+  }
+  function boxOf(f) {
+    const r = f.rect;
+    return { x: r.left, y: r.top, w: r.width * r.scaleX, h: r.height * r.scaleY };
+  }
+  function needsAttention(f) {
+    if (f.source === "qr") return false;
+    if (f.source === "column") return !f.column.trim();
+    if (f.source === "pattern") return !f.pattern.trim();
+    return !f.text.trim();
+  }
+
+  // ---------- Canvas ----------
+  function initCanvas() {
+    canvas = new fabric.Canvas("editor", { selection: false, preserveObjectStacking: true, uniformScaling: false });
+    canvas.on("object:moving", (e) => { snapX(e.target); clampBox(e.target); layoutField(e.target.field); });
+    canvas.on("object:scaling", (e) => layoutField(e.target.field));
+    canvas.on("object:modified", (e) => {
+      const r = e.target;
+      if (!r || !r.field) return;
+      r.set({ width: Math.max(10, r.width * r.scaleX), height: Math.max(10, r.height * r.scaleY), scaleX: 1, scaleY: 1 });
+      if (r.field.source === "qr") { const s = Math.max(r.width, r.height); r.set({ width: s, height: s }); }
+      r.set({ left: round(r.left), top: round(r.top), width: round(r.width), height: round(r.height) });
+      clampBox(r); r.setCoords();
+      layoutField(r.field); syncPanel(); hideGuide(); markDirty();
+    });
+    canvas.on("mouse:up", hideGuide);
+    canvas.on("selection:created", (e) => select(e.selected[0] && e.selected[0].field));
+    canvas.on("selection:updated", (e) => select(e.selected[0] && e.selected[0].field));
+    canvas.on("selection:cleared", () => select(null));
+  }
+
+  function loadTemplate(url, name) {
+    return new Promise((resolve, reject) => {
+      fabric.Image.fromURL(url, (img, isError) => {
+        if (isError || !img || !img.width) { reject(new Error("Could not open that image.")); return; }
+        bgW = img.width; bgH = img.height;
+        if (name) templateName = name;
+        if (!canvas) initCanvas();
+        canvas.setBackgroundImage(img, () => {
+          $("#drop").hidden = true;
+          $("#canvasWrap").hidden = false;
+          $("#zoomBar").hidden = false;
+          $("#saveBtn").disabled = false;
+          $("#tplName").textContent = templateName + " · " + bgW + " × " + bgH + " px";
+          zoom = 1; fit();
+          resolve();
+        });
+      }, { crossOrigin: "anonymous" });
+    });
+  }
+
+  function fit() {
+    if (!canvas) return;
+    const st = $("#stage");
+    const aw = Math.max(200, st.clientWidth - 48);
+    const ah = Math.max(200, st.clientHeight - 48);
+    fitScale = Math.min(aw / bgW, ah / bgH, 1);
+    applyZoom();
+  }
+  function applyZoom() {
+    const z = fitScale * zoom;
+    canvas.setZoom(z);
+    canvas.setDimensions({ width: round(bgW * z), height: round(bgH * z) });
+    fields.forEach((f) => { f.rect.set({ cornerSize: 10, borderScaleFactor: 1.5 }); layoutField(f); });
+    hideGuide();
+    canvas.requestRenderAll();
+    $("#zoomLabel").textContent = round(z * 100) + "%";
+  }
+
+  // ---------- Fields ----------
+  function createField(d) {
+    const f = Object.assign({
+      key: "", label: "Field", source: "column", column: "", text: "", pattern: "",
+      sample: "", align: "left", size: 28, weight: "Regular", color: INK
+    }, d);
+    f.key = uniqueKey(d.key || slug(f.label));
+
+    const w = d.w || 520, h = d.h || round(f.size * 1.6);
+    let x = d.x, y = d.y;
+    if (x == null || y == null) {                         // new field: centre, nudged if occupied
+      x = round(bgW / 2 - w / 2); y = round(bgH / 2 - h / 2);
+      while (fields.some((o) => Math.abs(o.rect.left - x) < 4 && Math.abs(o.rect.top - y) < 4)) { x += 24; y += 24; }
+    }
+
+    f.rect = new fabric.Rect({
+      left: x, top: y, width: w, height: h, fill: rectFill(f, false), strokeWidth: 0,
+      lockRotation: true, lockScalingFlip: true, objectCaching: false,
+      transparentCorners: false, cornerColor: "#5B6B47", cornerStrokeColor: "#ffffff",
+      borderColor: "#5B6B47", cornerSize: 10, hoverCursor: "move"
+    });
+    f.rect.setControlsVisibility({ mtr: false });
+    if (!CAN_EDIT) f.rect.set({ lockMovementX: true, lockMovementY: true, hasControls: false });
+    f.rect.field = f;
+
+    f.txt = new fabric.Text(" ", { fontFamily: FONT, lineHeight: 1, originY: "center", selectable: false, evented: false, objectCaching: false });
+    f.tag = new fabric.Text(f.label, { fontFamily: FONT, fontWeight: 600, fill: "#5B6B47", originY: "bottom", selectable: false, evented: false, objectCaching: false });
+
+    canvas.add(f.rect, f.txt, f.tag);
+    fields.push(f);
+    layoutField(f);
+    return f;
+  }
+
+  // Mirrors the Python renderer: text shrinks to fit the box width,
+  // is vertically centred in the box, and aligned left / centre / right.
+  function layoutField(f) {
+    if (!f) return;
+    const b = boxOf(f), t = f.txt, z = canvas.getZoom();
+    if (f.source === "qr") {               // a square; the real code is drawn on the certificate
+      t.set({ text: "▦ QR code", fontWeight: 600, fill: f.color || "#000000", fontSize: Math.max(10, Math.min(b.w, b.h) / 7),
+              originX: "center", left: b.x + b.w / 2, top: b.y + b.h / 2 });
+      t.setCoords(); f.shrunk = false;
+      f.tag.set({ text: f.label, fontSize: 12 / z, left: b.x, top: b.y - 3 / z }); f.tag.initDimensions(); f.tag.setCoords();
+      if (f === selected) $("#shrunk").hidden = true;
+      return;
+    }
+    t.set({ text: displayText(f) || " ", fontWeight: WEIGHTS[f.weight] || 400, fill: f.color, fontSize: f.size });
+    t.initDimensions();
+    let size = f.size;
+    if (t.width > b.w) {
+      size = Math.max(MIN_SIZE, Math.floor(f.size * b.w / t.width));
+      t.set({ fontSize: size }); t.initDimensions();
+      while (size > MIN_SIZE && t.width > b.w) { size -= 1; t.set({ fontSize: size }); t.initDimensions(); }
+    }
+    f.shrunk = size < f.size;
+
+    if (f.align === "center") t.set({ originX: "center", left: b.x + b.w / 2 });
+    else if (f.align === "right") t.set({ originX: "right", left: b.x + b.w });
+    else t.set({ originX: "left", left: b.x });
+    t.set({ top: b.y + b.h / 2 }); t.setCoords();
+
+    f.tag.set({ text: f.label + (needsAttention(f) ? "  ⚠" : ""), fontSize: 12 / z, left: b.x, top: b.y - 3 / z });
+    f.tag.initDimensions(); f.tag.setCoords();
+
+    if (f === selected) $("#shrunk").hidden = !f.shrunk;
+  }
+
+  function clampBox(r) {
+    const w = r.width * r.scaleX, h = r.height * r.scaleY;
+    r.set({ left: Math.min(Math.max(r.left, 0), Math.max(0, bgW - w)), top: Math.min(Math.max(r.top, 0), Math.max(0, bgH - h)) });
+  }
+
+  // Snap a box's left edge, centre or right edge to another box's, so columns line up.
+  function snapX(r) {
+    const z = canvas.getZoom(), tol = 6 / z, w = r.width * r.scaleX;
+    let best = null;
+    for (const o of fields) {
+      if (o.rect === r) continue;
+      const ow = o.rect.width * o.rect.scaleX;
+      for (const c of [o.rect.left, o.rect.left + ow / 2, o.rect.left + ow]) {
+        for (const off of [0, w / 2, w]) {
+          const d = Math.abs(r.left + off - c);
+          if (d < tol && (!best || d < best.d)) best = { d: d, left: c - off, x: c };
+        }
+      }
+    }
+    if (best) { r.set({ left: best.left }); showGuide(best.x); } else hideGuide();
+  }
+  function showGuide(x) {
+    const z = canvas.getZoom();
+    if (!guide) {
+      guide = new fabric.Line([x, 0, x, bgH], { stroke: "#D9B44A", selectable: false, evented: false, excludeFromExport: true });
+      canvas.add(guide);
+    }
+    guide.set({ x1: x, x2: x, y1: 0, y2: bgH, strokeWidth: 1.5 / z, strokeDashArray: [6 / z, 4 / z] });
+    guide.setCoords();
+  }
+  function hideGuide() {
+    if (guide) { canvas.remove(guide); guide = null; canvas.requestRenderAll(); }
+  }
+
+  function addPreset(p) {
+    if (!CAN_EDIT) return;
+    if (!canvas) { openTemplatePicker(); return; }
+    const d = Object.assign({}, p, { h: p.h || round(p.size * 1.6) });
+    const f = createField(d);
+    canvas.setActiveObject(f.rect);
+    select(f); renderList(); markDirty(); canvas.requestRenderAll();
+  }
+
+  function removeField(f) {
+    if (!f) return;
+    canvas.remove(f.rect, f.txt, f.tag);
+    fields = fields.filter((o) => o !== f);
+    if (selected === f) { canvas.discardActiveObject(); select(null); }
+    renderList(); markDirty(); canvas.requestRenderAll();
+  }
+
+  function clearFields() {
+    fields.forEach((f) => canvas.remove(f.rect, f.txt, f.tag));
+    fields = []; select(null); renderList();
+  }
+
+  // ---------- Panels ----------
+  function renderAddList() {
+    const el = $("#addList");
+    PRESETS.forEach((p) => {
+      const b = document.createElement("button");
+      b.type = "button"; b.textContent = p.label;
+      b.addEventListener("click", () => addPreset(p));
+      el.appendChild(b);
+    });
+  }
+
+  function renderList() {
+    const ul = $("#placedList");
+    ul.innerHTML = "";
+    $("#placedEmpty").hidden = fields.length > 0;
+    fields.forEach((f) => {
+      const li = document.createElement("li");
+      const b = document.createElement("button");
+      b.type = "button";
+      b.className = f === selected ? "active" : "";
+      const name = document.createElement("span"); name.textContent = f.label;
+      b.appendChild(name);
+      if (needsAttention(f)) {
+        const flag = document.createElement("span"); flag.className = "flag"; flag.textContent = "needs text";
+        b.appendChild(flag);
+      }
+      b.addEventListener("click", () => { canvas.setActiveObject(f.rect); select(f); canvas.requestRenderAll(); });
+      li.appendChild(b); ul.appendChild(li);
+    });
+  }
+
+  function select(f) {
+    if (selected && selected.rect) selected.rect.set({ fill: rectFill(selected, false) });
+    selected = f || null;
+    if (selected) selected.rect.set({ fill: rectFill(selected, true) });
+    $("#sel").hidden = !selected;
+    $("#noSel").hidden = !!selected;
+    syncPanel(); renderList();
+    if (canvas) canvas.requestRenderAll();
+  }
+
+  function syncPanel() {
+    const f = selected;
+    if (!f) return;
+    const b = boxOf(f);
+    $("#pLabel").value = f.label;
+    $("#pSource").value = f.source;
+    $("#pColumn").value = f.column;
+    $("#pText").value = f.text;
+    $("#pPattern").value = f.pattern;
+    $("#pSample").value = f.sample;
+    $("#pSize").value = f.size;
+    $("#pWeight").value = f.weight;
+    $("#pColor").value = f.color;
+    $("#pColorHex").value = f.color.toUpperCase();
+    $("#pX").value = round(b.x); $("#pY").value = round(b.y);
+    $("#pW").value = round(b.w); $("#pH").value = round(b.h);
+    document.querySelectorAll("#pAlign button").forEach((btn) => btn.classList.toggle("on", btn.dataset.v === f.align));
+    const qr = f.source === "qr";
+    $("#rowSource").hidden = qr; $("#rowAlign").hidden = qr; $("#rowFont").hidden = qr; $("#rowQr").hidden = !qr;
+    $("#pFillOn").checked = !!f.fill; $("#pFill").value = f.fill || "#ffffff"; $("#pFill").disabled = !f.fill;
+    $("#rowColumn").hidden = f.source !== "column";
+    $("#rowText").hidden = f.source !== "fixed";
+    $("#rowPattern").hidden = f.source !== "pattern";
+    $("#rowSample").hidden = f.source === "fixed" || qr;
+    $("#shrunk").hidden = !f.shrunk;
+  }
+
+  function bindPanel() {
+    const upd = (fn, relist) => () => {
+      if (!selected) return;
+      fn(selected);
+      layoutField(selected); canvas.requestRenderAll(); markDirty();
+      if (relist) renderList();
+    };
+    $("#pLabel").addEventListener("input", upd((f) => { f.label = $("#pLabel").value; }, true));
+    $("#pLabel").addEventListener("change", () => { if (selected) selected.key = uniqueKey(slug(selected.label), selected); });
+    $("#pSource").addEventListener("change", upd((f) => {
+      f.source = $("#pSource").value;
+      if (f.source === "fixed" && !f.text) f.text = f.sample || "";
+      syncPanel();
+    }, true));
+    $("#pColumn").addEventListener("input", upd((f) => { f.column = $("#pColumn").value; }, true));
+    $("#pText").addEventListener("input", upd((f) => { f.text = $("#pText").value; }, true));
+    $("#pPattern").addEventListener("input", upd((f) => { f.pattern = $("#pPattern").value; }, true));
+    $("#pSample").addEventListener("input", upd((f) => { f.sample = $("#pSample").value; }));
+    $("#pSize").addEventListener("input", upd((f) => { const v = parseInt($("#pSize").value, 10); if (v >= 8) f.size = v; }));
+    $("#pWeight").addEventListener("change", upd((f) => { f.weight = $("#pWeight").value; }));
+    $("#pColor").addEventListener("input", upd((f) => { f.color = $("#pColor").value; $("#pColorHex").value = f.color.toUpperCase(); }));
+    $("#pColorHex").addEventListener("change", upd((f) => {
+      const v = $("#pColorHex").value.trim();
+      if (/^#[0-9a-fA-F]{6}$/.test(v)) { f.color = v.toLowerCase(); $("#pColor").value = f.color; }
+      else $("#pColorHex").value = f.color.toUpperCase();
+    }));
+    document.querySelectorAll("#pAlign button").forEach((btn) => {
+      btn.addEventListener("click", upd((f) => { f.align = btn.dataset.v; syncPanel(); }));
+    });
+    const geo = upd((f) => {
+      const r = f.rect;
+      const x = parseInt($("#pX").value, 10), y = parseInt($("#pY").value, 10);
+      const w = parseInt($("#pW").value, 10), h = parseInt($("#pH").value, 10);
+      r.set({
+        left: isNaN(x) ? r.left : x, top: isNaN(y) ? r.top : y,
+        width: isNaN(w) ? r.width : Math.max(10, w), height: isNaN(h) ? r.height : Math.max(10, h),
+        scaleX: 1, scaleY: 1
+      });
+      if (f.source === "qr") { const sq = Math.max(r.width, r.height); r.set({ width: sq, height: sq }); }
+      clampBox(r); r.setCoords();
+    });
+    ["#pX", "#pY", "#pW", "#pH"].forEach((id) => $(id).addEventListener("change", geo));
+    $("#pFillOn").addEventListener("change", upd((f) => {
+      f.fill = $("#pFillOn").checked ? ($("#pFill").value || "#ffffff") : "";
+      f.rect.set({ fill: rectFill(f, true) }); syncPanel();
+    }));
+    $("#pFill").addEventListener("input", upd((f) => { if (f.fill) { f.fill = $("#pFill").value; f.rect.set({ fill: f.fill }); } }));
+    $("#deleteBtn").addEventListener("click", () => removeField(selected));
+  }
+
+  // ---------- Layout JSON ----------
+  function exportLayout() {
+    return {
+      version: 1,
+      template: templateName,
+      template_size: [bgW, bgH],
+      fields: fields.map((f) => {
+        const b = boxOf(f);
+        const o = {
+          key: f.key, label: f.label, source: f.source,
+          x: round(b.x), y: round(b.y), w: round(b.w), h: round(b.h),
+          align: f.align, size: f.size, weight: f.weight, color: f.color
+        };
+        if (f.source === "column") o.column = f.column.trim();
+        if (f.source === "fixed") o.text = f.text;
+        if (f.source === "pattern") o.pattern = f.pattern.trim();
+        if (f.source === "qr") o.pattern = "{verify_url}";
+        if (f.source !== "fixed" && f.source !== "qr" && f.sample) o.sample = f.sample;
+        if (f.fill) o.fill = f.fill;
+        return o;
+      })
+    };
+  }
+
+  function importLayout(data) {
+    if (!data || !Array.isArray(data.fields)) throw new Error("That file isn't a certificate layout.");
+    clearFields();
+    data.fields.forEach((d) => createField(d));
+    renderList(); canvas.requestRenderAll();
+    const ts = data.template_size;
+    if (Array.isArray(ts) && (ts[0] !== bgW || ts[1] !== bgH)) {
+      showBanner("This layout was made for a " + ts[0] + " × " + ts[1] + " px template, but this image is " +
+        bgW + " × " + bgH + " px. Check every box before saving.");
+    } else showBanner("");
+  }
+
+  async function save() {
+    if (!canvas) return;
+    if (!CAN_EDIT) return;
+    const missing = fields.filter(needsAttention).map((f) => f.label);
+    if (missing.length) {
+      showBanner("Fill in where the text comes from for: " + missing.join(", ") + ".");
+      const f = fields.find(needsAttention);
+      canvas.setActiveObject(f.rect); select(f);
+      return;
+    }
+    const layout = exportLayout();
+    const body = JSON.stringify(layout, null, 2);
+
+    if (DJANGO) {
+      setStatus("Saving…", true);
+      try {
+        const res = await fetch(CONFIG.saveUrl, {
+          method: "POST", credentials: "same-origin",
+          headers: { "Content-Type": "application/json", "X-CSRFToken": getCookie("csrftoken") },
+          body: body
+        });
+        if (!res.ok) {
+          let msg = "The server answered " + res.status + ".";
+          try { const j = await res.json(); if (j.error) msg = j.error; } catch (e2) { /* not JSON */ }
+          throw new Error(msg);
+        }
+        dirty = false; setStatus("Saved", false); showBanner("");
+      } catch (e) {
+        setStatus("Not saved", true);
+        showBanner("Couldn't save the layout. " + e.message + " Try again in a moment.");
+      }
+      return;
+    }
+
+    const a = document.createElement("a");
+    a.href = URL.createObjectURL(new Blob([body], { type: "application/json" }));
+    a.download = "layout.json";
+    document.body.appendChild(a); a.click(); a.remove();
+    setTimeout(() => URL.revokeObjectURL(a.href), 1000);
+    dirty = false; setStatus("Downloaded layout.json", false); showBanner("");
+  }
+
+  async function preview() {
+    if (!CONFIG.previewUrl || !canvas) return;
+    const values = {};
+    fields.forEach((f) => { values[f.key] = displayText(f); });
+    $("#previewBtn").disabled = true;
+    try {
+      const res = await fetch(CONFIG.previewUrl, {
+        method: "POST", credentials: "same-origin",
+        headers: { "Content-Type": "application/json", "X-CSRFToken": getCookie("csrftoken") },
+        body: JSON.stringify({ layout: exportLayout(), values: values })
+      });
+      if (!res.ok) throw new Error("The server answered " + res.status + ".");
+      const blob = await res.blob();
+      const img = $("#previewImg");
+      if (img.src) URL.revokeObjectURL(img.src);
+      img.src = URL.createObjectURL(blob);
+      $("#previewOverlay").hidden = false;
+    } catch (e) {
+      showBanner("Couldn't make the preview. " + e.message);
+    } finally {
+      $("#previewBtn").disabled = false;
+    }
+  }
+
+  // ---------- Opening files ----------
+  function openTemplatePicker() { $("#tplFile").click(); }
+
+  async function openTemplateFile(file) {
+    if (!file || !/^image\/(png|jpeg)$/.test(file.type)) { showBanner("Choose a PNG or JPG image."); return; }
+    try {
+      await loadTemplate(URL.createObjectURL(file), file.name);
+      showBanner("");
+      if (fields.length) importLayout(exportLayout());   // keep boxes, re-check size
+    } catch (e) { showBanner(e.message); }
+  }
+
+  function openLayoutFile(file) {
+    if (!file) return;
+    if (!canvas) { showBanner("Open the template image first, then the layout."); return; }
+    const reader = new FileReader();
+    reader.onload = () => {
+      try { importLayout(JSON.parse(reader.result)); dirty = false; setStatus("Layout opened", false); }
+      catch (e) { showBanner(e.message || "That file isn't a certificate layout."); }
+    };
+    reader.readAsText(file);
+  }
+
+  // ---------- Wiring ----------
+  function bindUi() {
+    renderAddList(); bindPanel(); renderList();
+
+    $("#openTplBtn").addEventListener("click", openTemplatePicker);
+    $("#dropBtn").addEventListener("click", openTemplatePicker);
+    $("#tplFile").addEventListener("change", (e) => { openTemplateFile(e.target.files[0]); e.target.value = ""; });
+    $("#openLayoutBtn").addEventListener("click", () => $("#layoutFile").click());
+    $("#layoutFile").addEventListener("change", (e) => { openLayoutFile(e.target.files[0]); e.target.value = ""; });
+    $("#saveBtn").addEventListener("click", save);
+    $("#previewBtn").addEventListener("click", preview);
+    $("#previewClose").addEventListener("click", () => { $("#previewOverlay").hidden = true; });
+    $("#previewOverlay").addEventListener("click", (e) => { if (e.target.id === "previewOverlay") e.target.hidden = true; });
+
+    $("#zoomIn").addEventListener("click", () => { zoom = Math.min(zoom * 1.25, 8); applyZoom(); });
+    $("#zoomOut").addEventListener("click", () => { zoom = Math.max(zoom / 1.25, 0.25); applyZoom(); });
+    $("#zoomFit").addEventListener("click", () => { zoom = 1; fit(); });
+
+    const drop = $("#drop");
+    ["dragenter", "dragover"].forEach((ev) => drop.addEventListener(ev, (e) => { e.preventDefault(); drop.classList.add("over"); }));
+    ["dragleave", "drop"].forEach((ev) => drop.addEventListener(ev, (e) => { e.preventDefault(); drop.classList.remove("over"); }));
+    drop.addEventListener("drop", (e) => openTemplateFile(e.dataTransfer.files[0]));
+
+    let t = null;
+    window.addEventListener("resize", () => { clearTimeout(t); t = setTimeout(() => { if (canvas) { const z = zoom; fit(); zoom = z; applyZoom(); } }, 120); });
+
+    document.addEventListener("keydown", (e) => {
+      if ((e.ctrlKey || e.metaKey) && e.key.toLowerCase() === "s") { e.preventDefault(); save(); return; }
+      if (e.key === "Escape") { $("#previewOverlay").hidden = true; return; }
+      const tag = (e.target.tagName || "").toLowerCase();
+      if (tag === "input" || tag === "select" || tag === "textarea" || !selected) return;
+      if (e.key === "Delete" || e.key === "Backspace") { e.preventDefault(); removeField(selected); return; }
+      const step = e.shiftKey ? 10 : 1;
+      const mv = { ArrowLeft: [-step, 0], ArrowRight: [step, 0], ArrowUp: [0, -step], ArrowDown: [0, step] }[e.key];
+      if (mv) {
+        e.preventDefault();
+        const r = selected.rect;
+        r.set({ left: r.left + mv[0], top: r.top + mv[1] }); clampBox(r); r.setCoords();
+        layoutField(selected); syncPanel(); canvas.requestRenderAll(); markDirty();
+      }
+    });
+
+    window.addEventListener("beforeunload", (e) => { if (dirty) { e.preventDefault(); e.returnValue = ""; } });
+
+    if (DJANGO) {                          // Django supplies the template; no file pickers needed
+      $("#openTplBtn").hidden = true;
+      $("#openLayoutBtn").hidden = true;
+    }
+    if (CONFIG.backUrl) { const b = $("#backBtn"); b.href = CONFIG.backUrl; b.hidden = false; }
+    if (CONFIG.title) { document.title = CONFIG.title + " · Certificate Layout"; }
+    if (!CAN_EDIT) {
+      $("#saveBtn").hidden = true;
+      $("#addSection").hidden = true;
+      $("#deleteBtn").hidden = true;
+      setStatus("View only", false);
+    }
+    $("#previewBtn").hidden = !CONFIG.previewUrl;
+  }
+
+  async function start() {
+    bindUi();
+    try {                                  // measure text with the real font, not a fallback
+      if (CONFIG.fontUrl) {
+        const face = new FontFace("CertFont", "url(" + JSON.stringify(CONFIG.fontUrl) + ")", { weight: "100 900" });
+        document.fonts.add(await face.load());
+      }
+      await Promise.all(Object.values(WEIGHTS).map((w) => document.fonts.load(w + " 32px '" + FONT + "'")));
+    } catch (e) { showBanner("Couldn't load the certificate font, so sizes on screen may be slightly off. Use Preview to check."); }
+
+    if (!CONFIG.templateUrl) return;       // standalone: wait for the user to open a PNG
+    try {
+      await loadTemplate(CONFIG.templateUrl, CONFIG.templateName || CONFIG.templateUrl.split("/").pop());
+    } catch (e) { showBanner("Couldn't load the template image. " + e.message); return; }
+
+    if (CONFIG.layoutUrl) {
+      try {
+        const res = await fetch(CONFIG.layoutUrl, { credentials: "same-origin", cache: "no-store" });
+        if (res.ok) { importLayout(await res.json()); setStatus(CAN_EDIT ? "Saved" : "View only", false); }
+        else if (res.status !== 404) showBanner("Couldn't load the saved layout (server answered " + res.status + ").");
+      } catch (e) { showBanner("Couldn't load the saved layout. " + e.message); }
+    }
+  }
+
+  start();
+})();
+</script>
+</body>
+</html>

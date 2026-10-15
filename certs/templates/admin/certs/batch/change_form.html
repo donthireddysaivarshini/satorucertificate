@@ -1,0 +1,105 @@
+{% extends "admin/change_form.html" %}
+{% block extrahead %}{{ block.super }}
+{% if auto_refresh %}<meta http-equiv="refresh" content="5">{% endif %}
+<style>
+  .bp { border: 1px solid var(--hairline-color); border-radius: 8px; padding: 16px 18px; margin: 0 0 20px; background: var(--body-bg); }
+  .bp-head { display: flex; align-items: center; gap: 12px; flex-wrap: wrap; margin-bottom: 10px; }
+  .bp-head h2 { margin: 0; font-size: 15px; }
+  .bp-next { color: var(--body-quiet-color); }
+  .bp-grid { display: grid; grid-template-columns: repeat(auto-fit, minmax(150px, 1fr)); gap: 8px 20px; margin: 12px 0; }
+  .bp-grid div small { display: block; color: var(--body-quiet-color); font-size: 11px; text-transform: uppercase; letter-spacing: .03em; }
+  .bp-grid div b { font-size: 14px; }
+  .bp-list { margin: 8px 0; padding: 10px 14px 10px 30px; border-radius: 6px; max-height: 220px; overflow: auto; }
+  .bp-list li { margin: 2px 0; list-style: disc; }
+  .bp-err { background: #fef2f2; color: #991b1b; }
+  .bp-warn { background: #fffbeb; color: #92400e; }
+  .bp-note { background: #eff6ff; color: #1e3a8a; padding: 10px 14px; border-radius: 6px; margin: 8px 0; white-space: pre-wrap; }
+  .bp-reject { background: #fef2f2; color: #991b1b; }
+  .bp-actions { display: flex; gap: 8px; flex-wrap: wrap; align-items: center; margin-top: 12px; }
+  .bp-actions button { padding: 8px 14px; border-radius: 6px; border: 1px solid var(--border-color); background: var(--body-bg); color: var(--body-fg); cursor: pointer; font-weight: 600; }
+  .bp-actions button.primary { background: var(--button-bg); color: var(--button-fg); border-color: var(--button-bg); }
+  .bp-actions button.good { background: #15803d; color: #fff; border-color: #15803d; }
+  .bp-actions button.bad { background: #fff; color: #b91c1c; border-color: #b91c1c; }
+  .bp textarea { width: 100%; max-width: 40em; min-height: 60px; margin-top: 8px; }
+  .bp table.kv td, .bp table.kv th { padding: 2px 14px 2px 0; border: 0; font-size: 12px; }
+  .inline-group .tabular td.original p { display: none; }
+  .bp-bar { height: 8px; background: var(--hairline-color); border-radius: 4px; overflow: hidden; max-width: 420px; margin-top: 6px; }
+  .bp-bar span { display: block; height: 100%; background: #15803d; }
+</style>
+{% endblock %}
+
+{% block field_sets %}
+{% if batch %}
+<div class="bp">
+  <div class="bp-head">
+    {{ status_badge }}
+    <h2>{{ n_certs }} certificate{{ n_certs|pluralize }}</h2>
+    <span class="bp-next">
+      {% if batch.status == "draft" %}{% if batch.errors %}Fix the problems below, then upload the corrected sheet.{% else %}Next: generate the PDFs and check a few.{% endif %}
+      {% elif batch.status == "generating" %}Making the PDFs…
+      {% elif batch.status == "ready" %}Check the PDFs below, then submit for approval.
+      {% elif batch.status == "pending" %}{% if is_decider %}Please review the certificates below, then approve or reject.{% else %}Waiting for {{ batch.approver }} to approve.{% endif %}
+      {% elif batch.status == "rejected" %}Changes requested. Update the batch, generate again and resubmit.
+      {% elif batch.status == "approved" %}Approved. Ready to send.
+      {% elif batch.status == "sending" %}Sending emails…
+      {% elif batch.status == "sent" %}Done.{% endif %}
+    </span>
+  </div>
+
+  {% if batch.decision_comment %}
+    <div class="bp-note {% if batch.status == 'rejected' %}bp-reject{% endif %}"><b>{{ batch.approver }}:</b> {{ batch.decision_comment }}</div>
+  {% endif %}
+
+  <div class="bp-grid">
+    <div><small>Template</small><b>{{ batch.template }}</b></div>
+    <div><small>Organiser</small><b>{{ batch.created_by|default:"—" }}</b></div>
+    <div><small>Approver</small><b>{{ batch.approver|default:"not chosen" }}</b></div>
+    {% if batch.submitted_at %}<div><small>Submitted</small><b>{{ batch.submitted_at|date:"j M Y, H:i" }}</b></div>{% endif %}
+    {% if batch.decided_at %}<div><small>Decided</small><b>{{ batch.decided_at|date:"j M Y, H:i" }}</b></div>{% endif %}
+    {% if counts.sent or counts.pending or counts.failed %}
+      <div><small>Emails</small><b>{{ counts.sent }} sent{% if counts.pending %} · {{ counts.pending }} queued{% endif %}{% if counts.failed %} · <span style="color:#b91c1c">{{ counts.failed }} failed</span>{% endif %}</b></div>
+    {% endif %}
+    {% if n_revoked %}<div><small>Revoked</small><b>{{ n_revoked }}</b></div>{% endif %}
+  </div>
+
+  {% if batch.status == "sending" and n_certs %}
+    <div class="bp-bar"><span style="width:{% widthratio counts.sent n_certs 100 %}%"></span></div>
+  {% endif %}
+
+  {% if batch.errors %}<ul class="bp-list bp-err">{% for e in batch.errors %}<li>{{ e }}</li>{% endfor %}</ul>{% endif %}
+  {% if batch.warnings %}<details {% if batch.warnings|length < 6 %}open{% endif %}><summary>{{ batch.warnings|length }} warning{{ batch.warnings|length|pluralize }}</summary>
+    <ul class="bp-list bp-warn">{% for w in batch.warnings %}<li>{{ w }}</li>{% endfor %}</ul></details>{% endif %}
+
+  <details><summary>What goes on the certificates</summary>
+    <table class="kv" style="margin-top:6px">
+      <tr><th>Certificate no format</th><td><code>{{ cert_format }}</code></td></tr>
+      {% for k, v in effective_values.items %}<tr><th>{{ k }}</th><td>{{ v }}</td></tr>{% endfor %}
+      <tr><th>Email subject</th><td>{{ subject }}</td></tr>
+    </table>
+  </details>
+
+  {% if actions %}
+  <div>
+    {% csrf_token %}
+    {% if is_decider %}
+      <textarea name="comment" placeholder="Comment (required to reject; optional to approve)"></textarea>
+    {% endif %}
+    <div class="bp-actions">
+      {% for key, label in actions %}
+        <button type="submit" formnovalidate formmethod="post"
+                formaction="{% url 'admin:certs_batch_action' batch.pk key %}"
+                class="{% if key == 'approve' %}good{% elif key == 'reject' %}bad{% elif key in 'generate submit send' and forloop.counter <= 3 %}primary{% endif %}"
+                {% if key == 'send' %}onclick="return confirm('Email {{ n_certs }} certificate(s) now?')"{% endif %}
+                {% if key == 'reject' %}onclick="var t=this.form.querySelector('textarea[name=comment]'); if(!t.value.trim()){t.focus(); t.placeholder='Please say what needs to change'; return false;}"{% endif %}
+        >{{ label }}</button>
+      {% endfor %}
+      {% if first_pdf %}<a href="{{ first_pdf }}" target="_blank" style="margin-left:6px">Open the first certificate ↗</a>{% endif %}
+    </div>
+  </div>
+  {% elif first_pdf %}
+    <p><a href="{{ first_pdf }}" target="_blank">Open the first certificate ↗</a></p>
+  {% endif %}
+</div>
+{% endif %}
+{{ block.super }}
+{% endblock %}
