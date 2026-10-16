@@ -17,4 +17,4 @@ RUN DJANGO_SECRET_KEY=build-only python manage.py collectstatic --noinput \
 USER app
 
 EXPOSE 8000
-CMD ["sh", "-c", "python manage.py migrate --noinput && python manage.py init_roles && gunicorn certdesk.wsgi -b 0.0.0.0:8000 -w 3 --timeout 120 --access-logfile -"]
+CMD ["sh", "-c", "python manage.py migrate --noinput && python manage.py init_roles && python manage.py sync_media && gunicorn certdesk.wsgi -b 0.0.0.0:8000 -w 3 --timeout 120 --access-logfile -"]
