@@ -5,3 +5,4 @@ qrcode>=7.4
 psycopg[binary]>=3.1
 gunicorn>=22
 whitenoise>=6.6
+python-dotenv>=1.0

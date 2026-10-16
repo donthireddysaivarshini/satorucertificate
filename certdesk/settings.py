@@ -4,9 +4,15 @@ variables (see .env.example).
 """
 import os
 from pathlib import Path
-from urllib.parse import urlparse
+from urllib.parse import parse_qs, unquote, urlparse
 
 BASE_DIR = Path(__file__).resolve().parent.parent
+
+try:
+    from dotenv import load_dotenv
+    load_dotenv(BASE_DIR / ".env")
+except ImportError:
+    pass
 
 
 def env(key, default=None):
@@ -25,7 +31,9 @@ SITE_URL = env("SITE_URL", "http://localhost:8000").rstrip("/")
 ORG_NAME = env("ORG_NAME", "Certificate Desk")
 
 _site_host = urlparse(SITE_URL).hostname or "localhost"
-ALLOWED_HOSTS = [h.strip() for h in env("ALLOWED_HOSTS", f"{_site_host},localhost,127.0.0.1").split(",") if h.strip()]
+ALLOWED_HOSTS = [h.strip() for h in env("ALLOWED_HOSTS", f"{_site_host},localhost,127.0.0.1,testserver").split(",") if h.strip()]
+if DEBUG and "*" not in ALLOWED_HOSTS:
+    ALLOWED_HOSTS.append("testserver")
 CSRF_TRUSTED_ORIGINS = [SITE_URL]
 
 INSTALLED_APPS = [
@@ -69,8 +77,25 @@ TEMPLATES = [
 
 WSGI_APPLICATION = "certdesk.wsgi.application"
 
-# PostgreSQL when POSTGRES_HOST is set (Docker), otherwise SQLite for local use.
-if env("POSTGRES_HOST"):
+# Database configuration: DATABASE_URL (Neon, etc.), POSTGRES_HOST (Docker), or SQLite for local use.
+if env("DATABASE_URL"):
+    _db_url = env("DATABASE_URL")
+    _parsed = urlparse(_db_url)
+    _qs = parse_qs(_parsed.query)
+    _options = {k: v[0] for k, v in _qs.items() if v}
+    DATABASES = {
+        "default": {
+            "ENGINE": "django.db.backends.postgresql",
+            "NAME": _parsed.path.lstrip("/"),
+            "USER": unquote(_parsed.username or ""),
+            "PASSWORD": unquote(_parsed.password or ""),
+            "HOST": _parsed.hostname,
+            "PORT": str(_parsed.port or "5432"),
+            "CONN_MAX_AGE": 60,
+            "OPTIONS": _options,
+        }
+    }
+elif env("POSTGRES_HOST"):
     DATABASES = {
         "default": {
             "ENGINE": "django.db.backends.postgresql",

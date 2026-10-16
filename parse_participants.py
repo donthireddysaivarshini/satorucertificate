@@ -1,0 +1,117 @@
+import os
+import re
+import csv
+import io
+from pathlib import Path
+
+raw_data = """Serial No	Full Name	Email
+1	Chiliveri keerthi	chiliverikeerthi@gmail.com
+2	Muppu Soumya	soumyamuppu@gmail.com
+3	Rupika Tumeshpeta	tumeshpetarupika@gmail.com
+4	Bhukya kalyani	kalpanabhukya558@gmail.com
+5	Gajawada Keerthana	gajawadasangameshwar7@gmail.com
+6	Ramavath Jyothi	ramavathjyothi319@gmail.com
+7	Nenavath Mallika	rathodpooj07@gmail.com
+8	Chinnam kavyasri	shainykavya@gmail.com
+9	Araga Alsa Reddy	aragaalsareddy@gmail.com
+10	Anjusha	anjushakerala123@gmail.com
+11	SHAMI KUMARI	shamisharma1414@gmail.com
+12	M.Nirmala	nirmalamudavath5@gmail.com
+13	Divya	kdivyadr6@gmail.com
+14	Buela wesly	buelachilapaly719@gmail.com
+15	P.Merlyn Christina	pmerlynchristina@gmail.com
+16	Pathri Vasantha	vvasu7781@gmail.com
+17	Nune Sarika	sarikanune5@gmail.com
+18	Sakeena fatima	sakinafatima003@gmail.com
+19	Sonalika Gurram	gurramsonalika@gmail.com
+20	Thumma Sriharsha	sriharshathumma12@gmail.com
+21	Kandre Abhigna	abhignakandre@gmail.com
+22	SALONI SARMAL	soniasarmal84@gmail.com
+23	MADHU BALA	bdogra198@gmail.com
+24	MEHRUN NISA	ermeh9863@gmail.com
+25	Pushpalatha Banala	banalapushpalatha873@gmail.com
+26	Vadthayavath Shireesha	shireeshavadthyavath2005@gmail.com
+27	Muskan fathima	fathimamuskaan066@gmail.com
+28	M. Sindhu	m34492690@gmail.com
+29	Shirisha Ravi	mudavathshirisha408@gmail.com
+30	K.sangeetha	sangeetha94559@gmail.com
+31	ANTHAMULLA SANJANA	sanjusanjana33778@gmail.com
+32	Vanam sravani	sravanivanam28@gmail.com
+33	Manne shirisha	udaykiranmanne85@gmail.com
+34	Kummari jyothi	kummarij399@gmail.com
+35	Chakali spandana	chs45732@gmail.com
+36	Danam Doddi Mounika	nagurmonika12@gmail.com
+37	Chinnagari anusha	anushachinnagari@gmail.com
+38	Kokkonda Nikhitha	nikhithanikky5494@gmail.com
+39	Putta Priyanka	puttapriyanka709@gmail.com
+40	Katike Rajeshwari	tuljammayadav123@gmail.com
+41	M.santhoshi M.santhoshi	msanthoshimsanthoshi73@gmail.com
+42	KADAM.ABHINAV.	kadamabhinav46@gmail.com
+43	Singaramaina Joshna	singaramainajoshnanaveen@gmail.com
+44	Nidhikonda Laxmi priya	laxmipriyanidhikonda@gmail.com
+45	Athmakuri Srishylam	srishylam2006@gmail.com
+46	UZMA BEGUM	ub076997@gmail.com
+47	Biradhar Sonika	biradharsonika2006@gmail.com
+48	Gandasiri Sridhar	gandasirisridhar123@gmail.com
+49	NAGULA ASHISH	ashishnagula2007@gmail.com
+50	Devaoth Nikitha	nikithadevasoth69@gmail.com
+51	Bommala akhila	kowdipally26@gmail.com
+52	ANGOTH RAMESHWARI	angothrameshwari@gmail.com
+53	sabhavath nikitha	sabhavathnikitha9391@gmail.com
+54	Chakali sushmita	cchsrinivaschsrinivas1084@gmail.com
+55	NENAVATH ANJI	anjiskn555@gmail.com
+56	RENJITA KRISHNAN	krishxxh24@gmail.com
+57	Rino Reji	rinoreji2006@gmail.com
+58	Jibin Saji	jibinsaji751@gmail.com
+59	Tirumuke Shankar	shankarrao1896@gmail.com
+60	Jyothi Chouhan	jyothichouhan557@gmail.com
+61	Syed Sohail Mahmoodi	dsyed6073@gmail.com
+62	Syeda Fatima	sfatima15102005@gmail.com
+63	Nishat Mohammadi	nishatmohammadi3@gmail.com
+64	Kothuri Ankitha Chelsiya	ankithachelsiyakothuri@gmail.com
+65	Talari Bhavani	bhavaniramulu116@gmail.com
+66	Shubhangi Suryawanshi	shubhangisuryawanshi841@gmail.com
+67	Vasamsetti Devisri	devisri4242@gmail.com
+68	H.Pravalika	pravalikahanumaganti1@gmail.com
+69	Methari Tejaswi	kommuramlaxman123@gmail.com
+70	Soujanya Koneti	konetisoujanya27@gmail.com
+71	Garshitha singam	garshitha123@gmail.com
+72	Kavali Sirivally	sirivallybhuma@gmail.com
+73	Ningi Hampijohn	hampiningi175@gmail.com
+74	Sarilla.Blessy	blessysarilla73@gmail.com
+75	Rupika Tumeshpeta	tumeshpetarupika@gmail.com
+76	Tanaz begum	tanazbegum642@gmail.com
+77	Dhagam Akshaya	dhagamakshaya@gmail.com
+78	Duggina Vyshnavi	vyshnaviduggina7@gmail.com
+79	Ms. M.HasithaNivedini	hasithanivedii0404@gmail.com
+80	Saniya Sulthana	saniyasulthana573@gmail.com
+81	B.Gnaneshwari	gnaneshwariboda@gmail.com
+82	M.Renuka	mudavathasoroja@gmail.com
+83	J.Bharathi	jangalabharathi19@gmail.com
+84	M.Rajitha	rajitha816@gmail.com
+85	Lahari Dhiravath	lahariammu0721@gmail.com
+86	Nida Khan	connect2nidakhan@gmail.com
+"""
+
+lines = [l.strip() for l in raw_data.strip().splitlines() if l.strip()]
+rows = []
+for line in lines:
+    parts = re.split(r"\t+", line)
+    if len(parts) >= 3 and parts[0].isdigit():
+        rows.append({
+            "serial": parts[0].strip(),
+            "name": parts[1].strip(),
+            "email": parts[2].strip()
+        })
+
+print(f"Total participants parsed: {len(rows)}")
+
+# Write to CSV
+csv_path = "stw_participants_86.csv"
+with open(csv_path, "w", newline="", encoding="utf-8") as f:
+    writer = csv.writer(f)
+    writer.writerow(["Serial No", "Full Name", "Email"])
+    for r in rows:
+        writer.writerow([r["serial"], r["name"], r["email"]])
+
+print(f"Saved {csv_path}")

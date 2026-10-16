@@ -283,9 +283,9 @@ def draw_guides(img, fields, selected=None):
     return img
 
 
-def to_pdf_bytes(img, resolution=150):
+def to_pdf_bytes(img, resolution=150, quality=100):
     buf = io.BytesIO()
-    img.save(buf, "PDF", resolution=resolution)
+    img.save(buf, "PDF", resolution=resolution, quality=quality, subsampling=0)
     return buf.getvalue()
 
 
