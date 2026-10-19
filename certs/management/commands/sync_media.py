@@ -46,7 +46,8 @@ class Command(BaseCommand):
                 self.stdout.write(self.style.WARNING(f"Source asset not found: {src_path}"))
 
         if options["generate"]:
-            batches_qs = Batch.objects.filter(certificates__isnull=False).distinct()
+            from certs.services import import_sheet
+            batches_qs = Batch.objects.all()
             if options.get("batch"):
                 batches_qs = batches_qs.filter(id=options["batch"])
             for batch in batches_qs.order_by("id"):
@@ -58,10 +59,28 @@ class Command(BaseCommand):
                     self.stdout.write(self.style.WARNING(f"Skipping Batch {batch.id}: template image not found at {template_path}"))
                     continue
 
+                # If batch has no certificates yet, try importing from sheet
+                if batch.certificates.count() == 0 and batch.sheet:
+                    sheet_path = Path(batch.sheet.path)
+                    if sheet_path.exists():
+                        self.stdout.write(f"Importing sheet for Batch {batch.id}...")
+                        import_sheet(batch)
+                    else:
+                        self.stdout.write(self.style.WARNING(f"Batch {batch.id} sheet not found at {sheet_path}"))
+
+                if batch.certificates.count() == 0:
+                    self.stdout.write(self.style.WARNING(f"Skipping Batch {batch.id}: 0 certificates"))
+                    continue
+
                 batch_certs_dir = media_root / "certificates" / str(batch.id)
                 batch_certs_dir.mkdir(parents=True, exist_ok=True)
 
-                self.stdout.write(f"Generating PDFs for Batch {batch.id}: {batch.title}...")
+                # Clear stale generation errors
+                if batch.issues and "errors" in batch.issues:
+                    batch.issues["errors"] = [e for e in batch.issues["errors"] if not str(e).startswith("Generating PDFs failed")]
+                    batch.save(update_fields=["issues"])
+
+                self.stdout.write(f"Generating PDFs for Batch {batch.id}: {batch.title} ({batch.certificates.count()} certs)...")
                 try:
                     generate(batch)
                     self.stdout.write(self.style.SUCCESS(f"Generated PDFs for Batch {batch.id}"))

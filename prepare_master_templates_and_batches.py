@@ -330,4 +330,47 @@ print("Rendering PDF for Dedicated Test Batch...")
 generate(batch_7)
 print(f"Batch 7 completed with status: {batch_7.status}")
 
+# =============================================================
+# 4. COMPLETION BATCH: 8 participants (122-129) + 1 SAITEST
+# =============================================================
+print("\n--- Processing Completion Batch (122-129 + SAITEST) ---")
+shutil.copy2(Path("stw_completion_122_129_with_test.csv"), media_sheets / "stw_completion_122_129_with_test.csv")
+batch_8_title = "Training Workshop: Geriatric care - Completion (8 + 1 Test)"
+batch_8 = Batch.objects.filter(title=batch_8_title).first()
+if not batch_8:
+    batch_8 = Batch.objects.create(
+        title=batch_8_title,
+        template=comp_template,
+        sheet="sheets/stw_completion_122_129_with_test.csv",
+        approver=batch_5.approver or admin_user,
+        cert_no_format="SF/STW/{n:03d}/2026",
+        values={
+            "workshop_date": "8 October 2026",
+            "venue": "Trauma Auditorium, NIMS Hospital",
+            "hours": "8 hours",
+            "issued": "19 October 2026"
+        },
+        status=Batch.Status.DRAFT,
+        email_subject=mail_comp_subject,
+        email_body=mail_comp_body
+    )
+else:
+    batch_8.template = comp_template
+    batch_8.sheet.name = "sheets/stw_completion_122_129_with_test.csv"
+    batch_8.email_subject = mail_comp_subject
+    batch_8.email_body = mail_comp_body
+    batch_8.values = {
+        "workshop_date": "8 October 2026",
+        "venue": "Trauma Auditorium, NIMS Hospital",
+        "hours": "8 hours",
+        "issued": "19 October 2026"
+    }
+    batch_8.save()
+
+from certs.services import import_sheet
+import_sheet(batch_8)
+print(f"Batch 8 imported with {batch_8.certificates.count()} certificates. Rendering PDFs...")
+generate(batch_8)
+print(f"Batch 8 completed with status: {batch_8.status}")
+
 print("\nSUCCESS! All batches, templates, and PDFs generated cleanly.")
