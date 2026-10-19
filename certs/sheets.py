@@ -9,7 +9,7 @@ EMAIL_RE = re.compile(r"^[^@\s]+@[^@\s]+\.[^@\s]+$")
 COLUMN_ALIASES = {
     "name": ["name", "full_name", "student_name", "participant_name", "participant"],
     "email": ["email", "email_id", "e_mail", "mail", "email_address"],
-    "cert_no": ["certificate_number", "certificate_no", "cert_no", "certificate", "cert", "certificate_id"],
+    "cert_no": ["certificate_number", "certificate_no", "cert_no", "certificate", "cert", "certificate_id", "serial_no", "serial"],
 }
 
 
