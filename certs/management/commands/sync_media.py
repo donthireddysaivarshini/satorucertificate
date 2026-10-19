@@ -16,8 +16,10 @@ class Command(BaseCommand):
         media_root = Path(settings.MEDIA_ROOT)
         templates_dir = media_root / "templates"
         fonts_dir = media_root / "fonts"
+        sheets_dir = media_root / "sheets"
         templates_dir.mkdir(parents=True, exist_ok=True)
         fonts_dir.mkdir(parents=True, exist_ok=True)
+        sheets_dir.mkdir(parents=True, exist_ok=True)
 
         base_dir = Path(settings.BASE_DIR)
 
@@ -28,6 +30,11 @@ class Command(BaseCommand):
             ("Training_Workshop_Completion_300dpi.png", templates_dir / "Training_Workshop_Completion_300dpi.png"),
             ("satoru_template_U9kn639.png", templates_dir / "satoru_template_U9kn639.png"),
         ]
+
+        for f in base_dir.glob("*.csv"):
+            mappings.append((f.name, sheets_dir / f.name))
+        for f in base_dir.glob("*.xlsx"):
+            mappings.append((f.name, sheets_dir / f.name))
 
         for src_name, dst_path in mappings:
             src_path = base_dir / src_name
