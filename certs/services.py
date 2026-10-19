@@ -202,9 +202,14 @@ def generate(batch):
         fonts = font_paths()
         for cert in batch.certificates.all():
             img = render_certificate(cert, base, fonts)
+            stem = re.sub(r"[^\w\-]+", "_", f"{cert.serial or cert.row}_{cert.name}").strip("_")
+            target_name = f"certificates/{batch.pk}/{stem}.pdf"
+            # Delete old physical file (both from DB ref and by target name) to prevent random suffix
             if cert.pdf:
                 cert.pdf.delete(save=False)
-            stem = re.sub(r"[^\w\-]+", "_", f"{cert.serial or cert.row}_{cert.name}").strip("_")
+            from django.core.files.storage import default_storage
+            if default_storage.exists(target_name):
+                default_storage.delete(target_name)
             cert.pdf.save(f"{stem}.pdf", ContentFile(R.to_pdf_bytes(img, t.resolution)), save=False)
             cert.email_status = Certificate.EmailStatus.NOT_SENT
             cert.save(update_fields=["pdf", "email_status"])
