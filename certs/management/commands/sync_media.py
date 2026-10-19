@@ -11,6 +11,7 @@ class Command(BaseCommand):
 
     def add_arguments(self, parser):
         parser.add_argument("--generate", action="store_true", help="Also generate PDFs for batches.")
+        parser.add_argument("--batch", type=int, help="Optional batch ID to generate (defaults to all batches).")
 
     def handle(self, *args, **options):
         media_root = Path(settings.MEDIA_ROOT)
@@ -38,16 +39,17 @@ class Command(BaseCommand):
 
         for src_name, dst_path in mappings:
             src_path = base_dir / src_name
-            if src_path.exists() and not dst_path.exists():
+            if src_path.exists():
                 shutil.copy2(src_path, dst_path)
-                self.stdout.write(self.style.SUCCESS(f"Copied {src_name} -> {dst_path}"))
-            elif dst_path.exists():
-                self.stdout.write(f"Already exists: {dst_path}")
+                self.stdout.write(self.style.SUCCESS(f"Synced {src_name} -> {dst_path}"))
             else:
                 self.stdout.write(self.style.WARNING(f"Source asset not found: {src_path}"))
 
         if options["generate"]:
-            for batch in Batch.objects.filter(certificates__isnull=False).distinct().order_by("id"):
+            batches_qs = Batch.objects.filter(certificates__isnull=False).distinct()
+            if options.get("batch"):
+                batches_qs = batches_qs.filter(id=options["batch"])
+            for batch in batches_qs.order_by("id"):
                 if not batch.template or not batch.template.image:
                     self.stdout.write(self.style.WARNING(f"Skipping Batch {batch.id}: no template image"))
                     continue
