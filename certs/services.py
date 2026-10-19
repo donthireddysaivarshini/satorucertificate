@@ -212,7 +212,13 @@ def generate(batch):
                 default_storage.delete(target_name)
             cert.pdf.save(f"{stem}.pdf", ContentFile(R.to_pdf_bytes(img, t.resolution)), save=False)
             cert.email_status = Certificate.EmailStatus.NOT_SENT
-            cert.save(update_fields=["pdf", "email_status"])
+            try:
+                cert.save(update_fields=["pdf", "email_status"])
+            except Exception as save_err:
+                if "did not affect any rows" in str(save_err):
+                    log.warning("Certificate %s was re-imported during generation; aborting obsolete run", cert.pk)
+                    return
+                raise
     except Exception as e:
         log.exception("Generation failed for batch %s", batch.pk)
         batch.status = S.DRAFT
