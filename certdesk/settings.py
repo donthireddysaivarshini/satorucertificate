@@ -31,10 +31,19 @@ SITE_URL = env("SITE_URL", "http://localhost:8000").rstrip("/")
 ORG_NAME = env("ORG_NAME", "Certificate Desk")
 
 _site_host = urlparse(SITE_URL).hostname or "localhost"
-ALLOWED_HOSTS = [h.strip() for h in env("ALLOWED_HOSTS", f"{_site_host},localhost,127.0.0.1,testserver").split(",") if h.strip()]
+ALLOWED_HOSTS = [h.strip() for h in env("ALLOWED_HOSTS", f"{_site_host},localhost,127.0.0.1,testserver,*").split(",") if h.strip()]
 if DEBUG and "*" not in ALLOWED_HOSTS:
     ALLOWED_HOSTS.append("testserver")
-CSRF_TRUSTED_ORIGINS = [SITE_URL]
+
+_csrf_origins = [SITE_URL]
+_custom_csrf = env("CSRF_TRUSTED_ORIGINS", "")
+if _custom_csrf:
+    _csrf_origins.extend([o.strip() for o in _custom_csrf.split(",") if o.strip()])
+for h in list(ALLOWED_HOSTS):
+    if h and h != "*":
+        _csrf_origins.append(f"http://{h}")
+        _csrf_origins.append(f"https://{h}")
+CSRF_TRUSTED_ORIGINS = list(dict.fromkeys(_csrf_origins))
 
 INSTALLED_APPS = [
     "django.contrib.admin",
