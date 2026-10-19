@@ -25,6 +25,7 @@ class Command(BaseCommand):
             ("DMSans.ttf", fonts_dir / "DMSans.ttf"),
             ("Faculty_General_UltraHD.png", templates_dir / "Faculty_General_UltraHD.png"),
             ("Training_Workshop_STW_300dpi.png", templates_dir / "Training_Workshop_STW_300dpi.png"),
+            ("Training_Workshop_Completion_300dpi.png", templates_dir / "Training_Workshop_Completion_300dpi.png"),
         ]
 
         for src_name, dst_path in mappings:
