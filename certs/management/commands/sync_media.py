@@ -26,6 +26,7 @@ class Command(BaseCommand):
             ("Faculty_General_UltraHD.png", templates_dir / "Faculty_General_UltraHD.png"),
             ("Training_Workshop_STW_300dpi.png", templates_dir / "Training_Workshop_STW_300dpi.png"),
             ("Training_Workshop_Completion_300dpi.png", templates_dir / "Training_Workshop_Completion_300dpi.png"),
+            ("satoru_template_U9kn639.png", templates_dir / "satoru_template_U9kn639.png"),
         ]
 
         for src_name, dst_path in mappings:
@@ -39,7 +40,18 @@ class Command(BaseCommand):
                 self.stdout.write(self.style.WARNING(f"Source asset not found: {src_path}"))
 
         if options["generate"]:
-            for batch in Batch.objects.filter(certificates__isnull=False).distinct():
+            for batch in Batch.objects.filter(certificates__isnull=False).distinct().order_by("id"):
+                if not batch.template or not batch.template.image:
+                    self.stdout.write(self.style.WARNING(f"Skipping Batch {batch.id}: no template image"))
+                    continue
+                template_path = Path(batch.template.image.path)
+                if not template_path.exists():
+                    self.stdout.write(self.style.WARNING(f"Skipping Batch {batch.id}: template image not found at {template_path}"))
+                    continue
+
+                batch_certs_dir = media_root / "certificates" / str(batch.id)
+                batch_certs_dir.mkdir(parents=True, exist_ok=True)
+
                 self.stdout.write(f"Generating PDFs for Batch {batch.id}: {batch.title}...")
                 try:
                     generate(batch)
