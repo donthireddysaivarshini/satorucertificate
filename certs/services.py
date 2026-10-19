@@ -215,9 +215,12 @@ def generate(batch):
         batch.save(update_fields=["status", "issues", "updated_at"])
         batch.log(None, "Generation failed", str(e))
         return
+    if batch.issues and "errors" in batch.issues:
+        non_gen_errors = [e for e in batch.issues.get("errors", []) if not str(e).startswith("Generating PDFs failed")]
+        batch.issues = {**batch.issues, "errors": non_gen_errors}
     batch.status = S.READY
     batch.generated_at = timezone.now()
-    batch.save(update_fields=["status", "generated_at", "updated_at"])
+    batch.save(update_fields=["status", "issues", "generated_at", "updated_at"])
     batch.log(None, "PDFs generated", f"{batch.certificates.count()} certificates")
 
 
